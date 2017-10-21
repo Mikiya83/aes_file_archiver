@@ -14,9 +14,13 @@ import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.Security;
 import java.util.Scanner;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
+
+import javax.crypto.Cipher;
 
 import es.vocali.util.AESCrypt;
 
@@ -37,6 +41,7 @@ public class AesFilesArchive {
 
 	static final int BUFFER = 1024;
 
+	private static final int AES_KEY_STRENGTH = 256;
 	private static final int AES_FILE_VERSION = 2;
 	private static final String JAVA_7_VERSION = "1.7";
 	private static final String JAVA_8_VERSION = "1.8";
@@ -131,6 +136,21 @@ public class AesFilesArchive {
 	 * version.
 	 */
 	private static void checkJceFiles() {
+		try {
+			// try the property after update 151
+			Security.setProperty("crypto.policy", "unlimited");
+			if (Cipher.getMaxAllowedKeyLength("AES") >= AES_KEY_STRENGTH) {
+				// Update applied so property can be set !
+				return;
+			}
+		} catch (SecurityException exc) {
+			// Cannot write permission, do not crash on it it can be normal, try
+			// to override JCE file next
+		} catch (NoSuchAlgorithmException e2) {
+			System.err.println("Version JAVA non supportée, abscence de AES.");
+			exitWithPrompt(1);
+		}
+
 		// Identify java version
 		String prefix = null;
 		if (System.getProperty("java.version").startsWith(JAVA_8_VERSION)) {
