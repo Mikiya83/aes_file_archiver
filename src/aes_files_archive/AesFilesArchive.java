@@ -1,10 +1,8 @@
 package aes_files_archive;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -13,7 +11,6 @@ import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.security.GeneralSecurityException;
-import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.Security;
 import java.util.Scanner;
@@ -43,15 +40,9 @@ public class AesFilesArchive {
 
 	private static final int AES_KEY_STRENGTH = 256;
 	private static final int AES_FILE_VERSION = 2;
-	private static final String JAVA_7_VERSION = "1.7";
-	private static final String JAVA_8_VERSION = "1.8";
-	private static final String JRE7_PREFIX_RESSOURCE = "/jre7/";
-	private static final String JRE8_PREFIX_RESSOURCE = "/jre8/";
-	private static final String LOCAL_POLICY_FILE = "local_policy.jar";
 	private static final String RECYCLEBIN__NAME = "$RECYCLE.BIN";
 	private static final String SYSTEM_INFO_NAME = "System Volume Information";
 	private static String tempZipFile;
-	private static final String US_EXPORT_POLICY_FILE = "US_export_policy.jar";
 
 	public static void main(String[] args) {
 		if (args.length != 4) {
@@ -59,8 +50,8 @@ public class AesFilesArchive {
 			exitWithPrompt(1);
 		}
 
-		// Check JCE files
-		checkJceFiles();
+		// Check JCE mode
+		checkJceMode();
 
 		String sourceDir = args[0];
 		String dest = args[1];
@@ -135,13 +126,13 @@ public class AesFilesArchive {
 	 * Check JAVA JCE files and overwrite them if needed according to JRE
 	 * version.
 	 */
-	private static void checkJceFiles() {
+	private static void checkJceMode() {
 		try {
 			// try the property after update 151
 			Security.setProperty("crypto.policy", "unlimited");
 			if (Cipher.getMaxAllowedKeyLength("AES") >= AES_KEY_STRENGTH) {
-				// Update applied so property can be set !
-				return;
+				System.err.println("Impossible d'initialiser JAVA JCE.");
+				exitWithPrompt(1);
 			}
 		} catch (SecurityException exc) {
 			// Cannot write permission, do not crash on it it can be normal, try
@@ -150,81 +141,6 @@ public class AesFilesArchive {
 			System.err.println("Version JAVA non supportée, abscence de AES.");
 			exitWithPrompt(1);
 		}
-
-		// Identify java version
-		String prefix = null;
-		if (System.getProperty("java.version").startsWith(JAVA_8_VERSION)) {
-			prefix = JRE8_PREFIX_RESSOURCE;
-		} else if (System.getProperty("java.version").startsWith(JAVA_7_VERSION)) {
-			prefix = JRE7_PREFIX_RESSOURCE;
-		} else {
-			System.err.println("Version JAVA non supportée, uniquement les JRE 7 / 8.");
-			exitWithPrompt(1);
-		}
-
-		String secuityDir = System.getProperty("java.home") + File.separator + "lib" + File.separator + "security";
-		try {
-			boolean overwrite = false;
-			if (!getMD5Checksum(AesFilesArchive.class.getResourceAsStream(prefix + LOCAL_POLICY_FILE))
-					.equals(getMD5Checksum(secuityDir + File.separator + LOCAL_POLICY_FILE))) {
-				File localPolicyFile = new File(secuityDir + File.separator + LOCAL_POLICY_FILE);
-				if (!localPolicyFile.canWrite()) {
-					System.err.println("Ecriture impossible du fichier local JCE.");
-					exitWithPrompt(1);
-				} else {
-					localPolicyFile.delete();
-					saveFile(localPolicyFile, AesFilesArchive.class.getResourceAsStream(prefix + LOCAL_POLICY_FILE));
-					overwrite = true;
-				}
-			}
-			if (!getMD5Checksum(AesFilesArchive.class.getResourceAsStream(prefix + US_EXPORT_POLICY_FILE))
-					.equals(getMD5Checksum(secuityDir + File.separator + US_EXPORT_POLICY_FILE))) {
-				File exportPolicyFile = new File(secuityDir + File.separator + US_EXPORT_POLICY_FILE);
-				if (!exportPolicyFile.canWrite()) {
-					System.err.println("Ecriture impossible du fichier US export JCE.");
-					exitWithPrompt(1);
-				} else {
-					exportPolicyFile.delete();
-					saveFile(exportPolicyFile,
-							AesFilesArchive.class.getResourceAsStream(prefix + US_EXPORT_POLICY_FILE));
-					overwrite = true;
-				}
-			}
-
-			if (overwrite) {
-				System.err.println("Installation des fichiers JCE terminées, redémarrez le progamme pour sauvegarder.");
-				exitWithPrompt(1);
-			}
-		} catch (IOException e1) {
-			e1.printStackTrace();
-			exitWithPrompt(1);
-		} catch (Exception e) {
-			e.printStackTrace();
-			exitWithPrompt(1);
-		}
-	}
-
-	/**
-	 * Create the checkum control for an InputStream
-	 * 
-	 * @param fis
-	 * @return
-	 * @throws Exception
-	 */
-	private static byte[] createChecksum(InputStream fis) throws Exception {
-		byte[] buffer = new byte[BUFFER];
-		MessageDigest complete = MessageDigest.getInstance("MD5");
-		int numRead;
-
-		do {
-			numRead = fis.read(buffer);
-			if (numRead > 0) {
-				complete.update(buffer, 0, numRead);
-			}
-		} while (numRead != -1);
-
-		fis.close();
-		return complete.digest();
 	}
 
 	/**
@@ -239,43 +155,6 @@ public class AesFilesArchive {
 		scanEntry.nextLine();
 		scanEntry.close();
 		System.exit(code);
-	}
-
-	/**
-	 * Get the MD5 checksum of a file by its stream.
-	 * 
-	 * @param filename
-	 * @return
-	 * @throws Exception
-	 */
-	private static String getMD5Checksum(InputStream stream) throws Exception {
-		byte[] b = createChecksum(stream);
-		String result = "";
-
-		for (int i = 0; i < b.length; i++) {
-			result += Integer.toString((b[i] & 0xff) + 0x100, 16).substring(1);
-		}
-		stream.close();
-		return result;
-	}
-
-	/**
-	 * Get the MD5 checksum of a file by its name.
-	 * 
-	 * @param filename
-	 * @return
-	 * @throws Exception
-	 */
-	private static String getMD5Checksum(String filename) throws Exception {
-		FileInputStream stream = new FileInputStream(filename);
-		byte[] b = createChecksum(stream);
-		String result = "";
-
-		for (int i = 0; i < b.length; i++) {
-			result += Integer.toString((b[i] & 0xff) + 0x100, 16).substring(1);
-		}
-		stream.close();
-		return result;
 	}
 
 	/**
@@ -330,30 +209,6 @@ public class AesFilesArchive {
 			});
 		} catch (IOException exc) {
 			exc.printStackTrace();
-			exitWithPrompt(1);
-		}
-	}
-
-	/**
-	 * Copy an input stream file into a file.
-	 * 
-	 * @param file
-	 * @param is
-	 */
-	private static void saveFile(File file, InputStream is) {
-		try {
-			FileOutputStream fos = new FileOutputStream(file);
-			try {
-				byte[] buf = new byte[BUFFER];
-				int len;
-				while ((len = is.read(buf)) >= 0) {
-					fos.write(buf, 0, len);
-				}
-			} finally {
-				fos.close();
-			}
-		} catch (IOException e) {
-			e.printStackTrace();
 			exitWithPrompt(1);
 		}
 	}
